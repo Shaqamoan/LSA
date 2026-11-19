@@ -10,20 +10,94 @@ knitr::opts_chunk$set(echo = TRUE)
 
 ## R Markdown
 
-This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
-
-When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
-
+read the csv files
 ```{r cars}
-summary(cars)
+library(tidyverse)
+sample_data <- read_csv("C:/Users/flori/Documents/biomedische/1e master/Large scale analysis of biomedical data/group project/sample_metadata.csv")
+protein_raw <-read_csv("C:/Users/flori/Documents/biomedische/1e master/Large scale analysis of biomedical data/group project/proteins_npx_raw.csv")
+protein_anno <- read_csv("C:/Users/flori/Documents/biomedische/1e master/Large scale analysis of biomedical data/group project/protein_annotation.csv")
+
+sample_data 
+protein_raw 
+protein_anno
+
+
+
 ```
 
-## Including Plots
 
-You can also embed plots, for example:
 
 ```{r pressure, echo=FALSE}
-plot(pressure)
+dim(sample_data)
+dim(protein_raw)
+dim(protein_anno)
+str(sample_data)
+str(protein_raw)
+str(protein_anno)
 ```
+```{r pressure, echo=FALSE}
+#colSums(is.na(sample_data))
+data <- sample_data[rowSums(is.na(sample_data)) <= 11, ]
+data
+colSums(is.na(data))
 
-Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
+data_ <- data[, colMeans(is.na(data)) <= 0.79] ##filteren op meer als 79% waarvan de kolommen Na hebben
+data_ <- data_ %>%
+  select(-subject.race,-subject.ethnicity,-olink_batch_id)
+
+```
+```{r}
+names(protein_raw)[duplicated(names(protein_raw))] ##zoek voor dubbele proteinen
+protein_raw_numeric <- protein_raw[, -1]
+  
+outliers <- lapply(protein_raw, function(x) {
+  Q1 <- quantile(x, 0.25, na.rm = TRUE)
+  Q3 <- quantile(x, 0.75, na.rm = TRUE)
+  IQR <- Q3 - Q1
+
+  which(x < (Q1 - 1.5 * IQR) |
+        x > (Q3 + 1.5 * IQR))
+})
+npx_only <- protein_raw_numeric[,-1]
+
+protein_stats <- data.frame(
+  protein = colnames(npx_only),
+  min = apply(npx_only, 2, min, na.rm = TRUE),
+  max = apply(npx_only, 2, max, na.rm = TRUE),
+  mean = apply(npx_only, 2, mean, na.rm = TRUE),
+  sd = apply(npx_only, 2, sd, na.rm = TRUE)
+)
+
+head(protein_stats)
+
+#all_values <- unlist(protein_raw_numeric[,-1])
+#boxplot(all_values,
+#        horizontal =TRUE,
+ #       main = "Distribution of NPX values")
+
+set.seed(123)
+
+selected <- sample(colnames(protein_raw)[-1], 20)
+
+plot_data <- protein_raw %>%
+  select(all_of(selected)) %>%
+  pivot_longer(
+    cols = everything(),
+    names_to = "Protein",
+    values_to = "NPX"
+  )
+
+ggplot(plot_data, aes(x = NPX)) +
+  geom_histogram(
+    bins = 30,
+    fill = "steelblue",
+    color = "black"
+  ) +
+  facet_wrap(~Protein, ncol = 5) +
+  theme_bw() +
+  labs(
+    title = "Distribution of 20 randomly selected proteins",
+    x = "NPX value",
+    y = "Count"
+  )
+```
