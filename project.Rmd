@@ -1,6 +1,8 @@
 ---
-title: "Project"
-output: html_document
+title: "Groupsproject - Dataset 1: Olink-age"
+output:
+  word_document: default
+  html_document: default
 date: "2026-11-19"
 ---
 
@@ -8,14 +10,17 @@ date: "2026-11-19"
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
+---
+PART 1: Explore, preprocess and quality-control the data
+--- 
 ## R Markdown
-
+--- STAP 1: Data inlezen --- 
 read the csv files
 ```{r cars}
 library(tidyverse)
-sample_data <- read_csv("C:/Users/flori/Documents/biomedische/1e master/Large scale analysis of biomedical data/group project/sample_metadata.csv")
-protein_raw <-read_csv("C:/Users/flori/Documents/biomedische/1e master/Large scale analysis of biomedical data/group project/proteins_npx_raw.csv")
-protein_anno <- read_csv("C:/Users/flori/Documents/biomedische/1e master/Large scale analysis of biomedical data/group project/protein_annotation.csv")
+sample_data <- read_csv("../Data/sample_metadata.csv")
+protein_raw <-read_csv("../Data/proteins_npx_raw.csv")
+protein_anno <- read_csv("../Data/protein_annotation.csv")
 
 sample_data 
 protein_raw 
