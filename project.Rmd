@@ -32,7 +32,7 @@ protein_anno
 
 
 
-```{r pressure, echo=FALSE}
+```{r}
 dim(sample_data)
 dim(protein_raw)
 dim(protein_anno)
@@ -40,33 +40,46 @@ str(sample_data)
 str(protein_raw)
 str(protein_anno)
 ```
-```{r pressure, echo=FALSE}
-#colSums(is.na(sample_data))
-data <- sample_data[rowSums(is.na(sample_data)) <= 11, ]
-data
-colSums(is.na(data))
 
-data_ <- data[, colMeans(is.na(data)) <= 0.79] ##filteren op meer als 79% waarvan de kolommen Na hebben
-data_ <- data_ %>%
-  select(-subject.race,-subject.ethnicity,-olink_batch_id)
+Filteren op kolommen en rijen in sample_data
+```{r}
+sample_data_filtered <- sample_data[rowSums(is.na(sample_data)) <= 11, ] ##telt het antal Na's per rij + verwijdert deze met meer als 
+sample_data_filtered
+colSums(is.na(data)) ##telt aantal per kolom
+
+sample_data_filtered <- sample_data_filtered[, colMeans(is.na(data)) <= 0.79] ##filteren op meer als 79% waarvan de kolommen Na hebben
+sample_data_filtered <- sample_data_filtered %>%
+  select(-subject.race,-subject.ethnicity,-olink_batch_id,-subject.subjectGuid,- subject_guid) ## niet nodig voor analyse
+sample_data_filtered
+```
+Filteren op kolommen en rijen in protein_raw
+```{r}
+protein_raw_filtered <- protein_raw[rowSums(is.na(protein_raw)) <= 11, ] ##telt het antal Na's per rij + verwijdert deze met meer als 11
+protein_raw_filtered ## van 867 --> 644 personen in onderzoek
+
+protein_raw_filtered <- protein_raw_filtered[, colMeans(is.na(protein_raw)) <= 0.79] ##filteren op meer als 79% waarvan de kolommen Na hebben 
+## verder geen protein te verwijderen!!
 
 ```
-```{r}
-names(protein_raw)[duplicated(names(protein_raw))] ##zoek voor dubbele proteinen
-protein_raw_numeric <- protein_raw[, -1]
-  
-outliers <- lapply(protein_raw, function(x) {
-  Q1 <- quantile(x, 0.25, na.rm = TRUE)
-  Q3 <- quantile(x, 0.75, na.rm = TRUE)
-  IQR <- Q3 - Q1
 
-  which(x < (Q1 - 1.5 * IQR) |
-        x > (Q3 + 1.5 * IQR))
-})
-npx_only <- protein_raw_numeric[,-1]
+
+
+```{r}
+names(protein_raw_filtered)[duplicated(names(protein_raw_filtered))] ##zoek voor dubbele proteinen
+protein_raw_filtered <- protein_raw_filtered[, -1]
+  
+#outliers <- lapply(protein_raw, function(x) {
+#  Q1 <- quantile(x, 0.25, na.rm = TRUE)
+ # Q3 <- quantile(x, 0.75, na.rm = TRUE)
+#  IQR <- Q3 - Q1
+
+#  which(x < (Q1 - 1.5 * IQR) |
+ #       x > (Q3 + 1.5 * IQR))
+
+#npx_only <- protein_raw_filtered[,-1]
 
 protein_stats <- data.frame(
-  protein = colnames(npx_only),
+  protein = colnames(protein_raw_filtered),
   min = apply(npx_only, 2, min, na.rm = TRUE),
   max = apply(npx_only, 2, max, na.rm = TRUE),
   mean = apply(npx_only, 2, mean, na.rm = TRUE),
@@ -74,11 +87,10 @@ protein_stats <- data.frame(
 )
 
 head(protein_stats)
-
-#all_values <- unlist(protein_raw_numeric[,-1])
-#boxplot(all_values,
-#        horizontal =TRUE,
- #       main = "Distribution of NPX values")
+all_values <- unlist(protein_raw_numeric[,-1])
+boxplot(all_values,
+        horizontal =TRUE,
+        main = "Distribution of NPX values")
 
 set.seed(123)
 
