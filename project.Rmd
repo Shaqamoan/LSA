@@ -1,8 +1,9 @@
 ---
 title: "Groupsproject - Dataset 1: Olink-age"
 output:
-  word_document: default
   html_document: default
+  pdf_document: default
+  word_document: default
 date: "2026-11-19"
 ---
 
@@ -61,7 +62,7 @@ STAP B: Missing values bekijken
 --- 
 1. METADATA
 Missing-values in kaart brengen
-```{r missing-meta-globaal}
+```{r missing-meta}
 #Aantal missing values (globaal)
 colSums(is.na(sample_data))
 sum(is.na(sample_data)) #Totaal aantal NA's in de hele tabel
@@ -78,7 +79,7 @@ print(missing_metadata, n = 40)
 Missing metadata plot
 ```{r missing-metadata-plot}
 ggplot(
-  missing_meta,
+  missing_metadata,
   aes(x = Missing_Percentage)
 ) +
   geom_histogram(
@@ -103,8 +104,10 @@ ggplot(
 
 Op basis van de plot zien we heel veel missing-value waarden boven de 75%. Dergelijke variabelen leveren weinig bruikbare informatie op en kunnen latere analyses verstoren. Daarom werden stalen met een hoog aantal ontbrekende waarden verwijderd en werden metadata-variabelen met meer dan 75% ontbrekende waarden uitgesloten.
 ```{r}
-# Verwijder metadata-variabelen met meer dan 79% ontbrekende waarden
-data_clean <- data_clean[, colMeans(is.na(data_clean)) <= 0.75]
+# Verwijder metadata-variabelen met meer dan 75% ontbrekende waarden
+# Maak een opgeschoonde versie van de metadata
+data_clean <- sample_data %>%
+  select(where(~ mean(is.na(.)) <= 0.75))
 ```
 
 Bij verschillende klinische bloedmetingen werd telkens hetzelfde aantal ontbrekende waarden (10) waargenomen. Daarom werd nagegaan of deze missing values afkomstig waren van dezelfde stalen.
@@ -206,7 +209,7 @@ sum(is.na(protein_clean))
 mean(is.na(protein_clean)) * 100
 ```
 
-Dit wilt zeggen dat 21% van alle waarden ontbreken. Na het samenvoegen van de duplicate assay-paren werd de missingness opnieuw geëvalueerd. Er bleven 2683 ontbrekende waarden over, wat overeenkomt met slechts 0,21% van alle metingen. Dit wijst erop dat de dataset na preprocessing slechts een zeer beperkt aantal ontbrekende waarden bevat.
+Dit wilt zeggen dat 0,21% van alle waarden ontbreken. Na het samenvoegen van de duplicate assay-paren werd de missingness opnieuw geëvalueerd. Er bleven 2683 ontbrekende waarden over, wat overeenkomt met slechts 0,21% van alle metingen. Dit wijst erop dat de dataset na preprocessing slechts een zeer beperkt aantal ontbrekende waarden bevat.
 
 ---
 STAP D: Eiwitten onder de detectielimiet (LOD)
@@ -454,7 +457,7 @@ De PCA suggereerde een beperkte invloed van batch op de totale proteoomvariatie.
 ---
 STAP I: Controle voor verdere analyse
 ---
-Na de preprocessing werd een laatste kwaliteitscontrole uitgevoerd. Duplicate assays werden samengevoegd, eiwitten met meer dan 50% waarden onder de detectielimiet werden verwijderd en potentiële technische batch-effecten werden geëvalueerd via PCA. De distributie van de NPX-waarden bevestigde dat geen bijkomende log-transformatie nodig was.
+Na de preprocessing werd een laatste kwaliteitscontrole uitgevoerd. Duplicate assays werden samengevoegd, eiwitten met meer dan 50% waarden onder de detectielimiet werden verwijderd en potentiële technische batch-effecten werden geëvalueerd via PCA. De distributie van de NPX-waarden bevestigde dat geen bijkomende log-transformatie nodig was
 
 ```{r}
 cat("Aantal stalen:", nrow(protein_filtered), "\n")
