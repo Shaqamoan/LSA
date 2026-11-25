@@ -237,7 +237,7 @@ head(protein_stats)
  #       main = "Distribution of NPX values")
 ```
 ---
-STAP D: Is er transformatie nodig?
+STAP D: Is er transformatie nodig? --> je kan zien dat in de proteinstalen er geen 100, 1000, 10.000 stalen zijn --> al reeds log-transformatie toegepast
 ---
 
 ```{r}
