@@ -69,7 +69,7 @@ sum(is.na(sample_data)) #Totaal aantal NA's in de hele tabel
 mean(is.na(sample_data))*100 #Algemene percentage lege cellen
 
 missing_metadata <- sample_data %>%
-  summarise(across(everything(), ~sum(is.na(.)))) %>%
+  summarise(across(everything(), ~sum(is.na(.)))) %>%  ## betekenis of de functie across?
   pivot_longer(everything(), names_to = "Variable", values_to = "missing_values") %>%
   mutate(Missing_Percentage = (missing_values / nrow(sample_data)) * 100) %>%
   arrange(desc(Missing_Percentage))
@@ -88,7 +88,7 @@ ggplot(
     colour = "black"
   ) +
   geom_vline(
-    xintercept = 79,
+    xintercept = 79, ## waarom passen we dit niet aan 75 zoals herionder te vermelden 
     colour = "red",
     linetype = "dashed",
     linewidth = 1
@@ -130,7 +130,7 @@ nrow(missing_samples)
 
 missing_samples
 ```
-Hieruit blijkt dat telkens dezelfde 10 proefpersonen verantwoordelijk zijn voor de ontbrekende bloedmetingen. Dit wijst erop dat de missing values niet willekeurig verspreid zijn over de dataset, maar een systematisch patroon vertonen. Mogelijk werden voor deze stalen geen klinische bloedanalyses uitgevoerd of waren de resultaten niet beschikbaar. Omdat voor deze stalen wel proteomicsgegevens aanwezig zijn, werden ze niet uit de dataset verwijderd.
+Hieruit blijkt dat telkens dezelfde 10 proefpersonen verantwoordelijk zijn voor de ontbrekende bloedmetingen. Dit wijst erop dat de missing values niet willekeurig verspreid zijn over de dataset, maar een systematisch patroon vertonen. Mogelijk werden voor deze stalen geen klinische bloedanalyses uitgevoerd of waren de resultaten niet beschikbaar. Omdat voor deze stalen wel proteomicsgegevens aanwezig zijn, werden ze niet uit de dataset verwijderd. Dit kan wijzen op een vroegtijdige sterfte of vroegtijdig vertlaten van het onderzoek. 
 
 2.PROTEIN-RAW
 ```{r missing-meta-globaal}
@@ -150,6 +150,39 @@ missing_proteins_raw <- protein_raw %>%
 print(missing_proteins_raw, n = 40)
 
 ```
+Missing metadata plot
+```{r missing-metadata-plot}
+ggplot(
+  missing_proteins_raw,
+  aes(x = Missing_Percentage)
+) +
+  geom_histogram(
+    bins = 20,
+    fill = "#2E8B57",
+    colour = "black"
+  ) +
+  geom_vline(
+    xintercept = 80,
+    colour = "red",
+    linetype = "dashed",
+    linewidth = 1
+  ) +
+  theme_bw() +
+  labs(
+    title = "Verdeling van ontbrekende waarden per proteïne",
+    x = "% ontbrekende waarden",
+    y = "Aantal proteïnen"
+  )
+```
+Op basis van de plot zien we heel veel missing-value waarden boven de 82%. Dergelijke variabelen leveren weinig bruikbare informatie op en kunnen latere analyses verstoren. Daarom werden stalen met een hoog aantal ontbrekende waarden verwijderd en werden metadata-variabelen met meer dan 82% ontbrekende waarden uitgesloten.
+```{r}
+# Verwijder metadata-variabelen met meer dan 75% ontbrekende waarden
+# Maak een opgeschoonde versie van de metadata
+missing_proteins_raw <- missing_proteins_raw %>%
+  select(where(~ mean(is.na(.)) <= 0.82))
+```
+
+
 ---
 STAP C: dubbele assays zoeken 
 In de annotatietabel controleren we of er eiwitten zijn die via de variabele same_assay_as aan dezelfde Olink-assay gekoppeld zijn. Dergelijke eiwitten vertegenwoordigen hetzelfde onderliggende meetsignaal en kunnen leiden tot redundante informatie in de dataset.
@@ -450,6 +483,22 @@ plot(
 )
 ```
 Wanneer de stalen werden gekleurd volgens CMV-status, werd geen duidelijke clustering waargenomen. CMV-positieve en CMV-negatieve individuen vertonen een sterke overlap in de eerste twee hoofdcomponenten. Dit suggereert dat CMV-status geen dominante bron van variatie vormt in de globale proteomicsdataset.
+
+PCA lymfocyt
+```{r}
+plot(
+  pca$x[,1],
+  pca$x[,2],
+  pch = 16,
+  col = as.factor(metadata_pca$subject.ethnicity),
+
+  xlab = pc1_label,
+  ylab = pc2_label,
+  main = "PCA van de proteomicsdata"
+)
+```
+
+
 
 CONCLUSIE PCA:
 De PCA suggereerde een beperkte invloed van batch op de totale proteoomvariatie. Daarom werd batch niet vooraf uit de dataset verwijderd. Indien relevant voor de onderzoeksvraag, kan batch later worden opgenomen als covariaat in statistische modellen. Leeftijd lijkt een beperkte invloed te hebben op het proteoomprofiel, terwijl CMV-status geen duidelijke clustering veroorzaakt. De eerste twee hoofdcomponenten bieden bijgevolg weinig bewijs voor een sterk globaal effect van CMV op de eiwitexpressie.
