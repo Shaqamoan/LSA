@@ -14,116 +14,6 @@ knitr::opts_chunk$set(echo = TRUE)
 PART 1: Explore, preprocess and quality-control the data
 --- 
 ## R Markdown
---- STAP 1: Data inlezen --- 
-read the csv files
-```{r cars}
-library(tidyverse)
-sample_data <- read_csv("../Data/sample_metadata.csv")
-protein_raw <-read_csv("../Data/proteins_npx_raw.csv")
-protein_anno <- read_csv("../Data/protein_annotation.csv")
-
-sample_data 
-protein_raw 
-protein_anno
-
-
-
-```
-
-
-
-```{r}
-dim(sample_data)
-dim(protein_raw)
-dim(protein_anno)
-str(sample_data)
-str(protein_raw)
-str(protein_anno)
-```
-
-Filteren op kolommen en rijen in sample_data
-```{r}
-sample_data_filtered <- sample_data[rowSums(is.na(sample_data)) <= 11, ] ##telt het antal Na's per rij + verwijdert deze met meer als 
-sample_data_filtered
-colSums(is.na(data)) ##telt aantal per kolom
-
-sample_data_filtered <- sample_data_filtered[, colMeans(is.na(data)) <= 0.79] ##filteren op meer als 79% waarvan de kolommen Na hebben
-sample_data_filtered <- sample_data_filtered %>%
-  select(-subject.race,-subject.ethnicity,-olink_batch_id,-subject.subjectGuid,- subject_guid) ## niet nodig voor analyse
-sample_data_filtered
-```
-Filteren op kolommen en rijen in protein_raw
-```{r}
-protein_raw_filtered <- protein_raw[rowSums(is.na(protein_raw)) <= 11, ] ##telt het antal Na's per rij + verwijdert deze met meer als 11
-protein_raw_filtered ## van 867 --> 644 personen in onderzoek
-
-protein_raw_filtered <- protein_raw_filtered[, colMeans(is.na(protein_raw)) <= 0.79] ##filteren op meer als 79% waarvan de kolommen Na hebben 
-## verder geen protein te verwijderen!!
-
-```
-
-
-
-```{r}
-names(protein_raw_filtered)[duplicated(names(protein_raw_filtered))] ##zoek voor dubbele proteinen
-protein_raw_filtered <- protein_raw_filtered[, -1]
-  
-#outliers <- lapply(protein_raw, function(x) {
-#  Q1 <- quantile(x, 0.25, na.rm = TRUE)
- # Q3 <- quantile(x, 0.75, na.rm = TRUE)
-#  IQR <- Q3 - Q1
-
-#  which(x < (Q1 - 1.5 * IQR) |
- #       x > (Q3 + 1.5 * IQR))
-
-#npx_only <- protein_raw_filtered[,-1]
-
-protein_stats <- data.frame(
-  protein = colnames(protein_raw_filtered),
-  min = apply(npx_only, 2, min, na.rm = TRUE),
-  max = apply(npx_only, 2, max, na.rm = TRUE),
-  mean = apply(npx_only, 2, mean, na.rm = TRUE),
-  sd = apply(npx_only, 2, sd, na.rm = TRUE)
-)
-
-head(protein_stats)
-all_values <- unlist(protein_raw_numeric[,-1])
-boxplot(all_values,
-        horizontal =TRUE,
-        main = "Distribution of NPX values")
-
-set.seed(123)
-
-selected <- sample(colnames(protein_raw)[-1], 20)
-
-plot_data <- protein_raw %>%
-  select(all_of(selected)) %>%
-  pivot_longer(
-    cols = everything(),
-    names_to = "Protein",
-    values_to = "NPX"
-  )
-
-ggplot(plot_data, aes(x = NPX)) +
-  geom_histogram(
-    bins = 30,
-    fill = "steelblue",
-    color = "black"
-  ) +
-  facet_wrap(~Protein, ncol = 5) +
-  theme_bw() +
-  labs(
-    title = "Distribution of 20 randomly selected proteins",
-    x = "NPX value",
-    y = "Count"
-  )
-```
-``
-
----
-PART 1: Explore, preprocess and quality-control the data
---- 
-## R Markdown
 --- Data inlezen --- 
 read the csv files
 ```{r cars}
@@ -145,111 +35,282 @@ STAP A: DATASTRUCTUUR EN VARIABELE-TYPEN VERKENNEN
 ---
 
 ```{r data-dimensions}
-#Dimensies van de datasets controleren 
+#1.Dimensies van de datasets controleren 
 dim(sample_data)
 dim(protein_raw)
 dim(protein_anno)
 
-
+#2. Biologische steekproefverdeling
 table(sample_data$subject.biologicalSex, dnn = "Geslacht") #aantal mannen en vrouwen
 table(sample_data$cmv_status, dnn = "CMV Status") #aantal proefpersonen positief voor CMV en negatief voor CMV
-table(sample_data$subject.ageGroup, dnn = "Leeftijdsgroep")#hoeveel proefpersonen injonge vs oudere leeftijdsgroup
+table(sample_data$subject.ageGroup, dnn = "Leeftijdsgroep")#hoeveel proefpersonen in jonge vs oudere leeftijdsgroup
 
-#datatypes inspecteren
+#3.datatypes inspecteren
 str(sample_data)
 str(protein_raw)
 str(protein_anno)
+
+#4.Kwaliteitscontrole: controleren of alle stalen een unieke ID hebben (geen NA's)
+sum(is.na(sample_data$sample_kit_id))
+sum(is.na(protein_raw$sample_kit_id))
+
 ```
+Krijgen 2x 0 als antwoord bij kwaliteitscontrole. Dit wilt zeggen dat er geen "anonieme" stalen of kwijtgeraakte IDs zijn (NA's). Dit wilt zeggen dat we de 2 datasets veilig aan elkaar kunnen linken.
 ---
-STAP B:Missing values verwijderen
+STAP B: Missing values bekijken
 --- 
-Sample_data
-```{r}
-#Aantal missing values
+1. METADATA
+Missing-values in kaart brengen
+```{r missing-meta-globaal}
+#Aantal missing values (globaal)
 colSums(is.na(sample_data))
+sum(is.na(sample_data)) #Totaal aantal NA's in de hele tabel
+mean(is.na(sample_data))*100 #Algemene percentage lege cellen
 
-#filter stalen met te veel NA's in de metadata
-data_clean <- sample_data[rowSums(is.na(sample_data)) <= 11, ]
-data_clean
-colSums(is.na(data_clean))
+missing_metadata <- sample_data %>%
+  summarise(across(everything(), ~sum(is.na(.)))) %>%
+  pivot_longer(everything(), names_to = "Variable", values_to = "missing_values") %>%
+  mutate(Missing_Percentage = (missing_values / nrow(sample_data)) * 100) %>%
+  arrange(desc(Missing_Percentage))
 
-#filter metadata-kolommen die meer dan 79% ontbrekende waarden vertonen
-data_clean <- data_clean[, colMeans(is.na(data_clean)) <= 0.79] 
-#verwijderen niet-informatieve kolommen
-data_clean <- data_clean %>%
-  select(-subject.race,-subject.ethnicity,-olink_batch_id)
-``` 
-Proteins_anno
-Onbetrouwbare eiwitten wegfilteren op basis van LOD-filtering op 20%
-```{r}
-#1. Bekijk welke eiwitten meer dan 20% onder de detectiegrens liggen
-ruis_eiwitten <- protein_anno %>%
-  filter(pct_below_lod > 20) %>%
-  pull(protein)
-
-#2.Ruis_eiwitten uit de ruwe expressiematrix halen
-#Ik heb het nog niet uitgevoerd:
-##protein_clean <- protein_raw %>%
-##select(-any_of(ruis_eiwitten))
-
-print(paste("Aantal gefilterde eiwitten (>20% onder LOD):",
-            length(ruis_eiwitten)))
-
-print(paste("Aantal overgebleven betrouwbare eiwitten:",
-            ncol(protein_clean) - 1))
+print(missing_metadata, n = 40)
+```
+Missing metadata plot
+```{r missing-metadata-plot}
+ggplot(
+  missing_meta,
+  aes(x = Missing_Percentage)
+) +
+  geom_histogram(
+    bins = 20,
+    fill = "#2E8B57",
+    colour = "black"
+  ) +
+  geom_vline(
+    xintercept = 79,
+    colour = "red",
+    linetype = "dashed",
+    linewidth = 1
+  ) +
+  theme_bw() +
+  labs(
+    title = "Verdeling van ontbrekende waarden in metadata",
+    x = "% ontbrekende waarden",
+    y = "Aantal variabelen"
+  )
 ```
 
----
-STAP C: controle op dubbele eiwitten en ouliers -> misschien moeten we deze wel nog aanpassen als we wel met protein_clean werken
----
 
+Op basis van de plot zien we heel veel missing-value waarden boven de 75%. Dergelijke variabelen leveren weinig bruikbare informatie op en kunnen latere analyses verstoren. Daarom werden stalen met een hoog aantal ontbrekende waarden verwijderd en werden metadata-variabelen met meer dan 75% ontbrekende waarden uitgesloten.
 ```{r}
-#1.Controle op dubbele eiwitnamen
-names(protein_raw)[duplicated(names(protein_raw))] 
+# Verwijder metadata-variabelen met meer dan 79% ontbrekende waarden
+data_clean <- data_clean[, colMeans(is.na(data_clean)) <= 0.75]
+```
 
-#2.Enkel numerieke NPX-kolommen behouden
-protein_raw_numeric <- protein_raw[, -1]
-
-#3. Outlierdetectie per eiwit
-outliers <- lapply(protein_raw_numeric, function(x) {
-  Q1 <- quantile(x, 0.25, na.rm = TRUE)
-  Q3 <- quantile(x, 0.75, na.rm = TRUE)
-  IQR <- Q3 - Q1
-
-  which(x < (Q1 - 1.5 * IQR) |
-        x > (Q3 + 1.5 * IQR))
-})
-
-#4.Beschrijven statistieken per eiwit
-protein_stats <- data.frame(
-  protein = colnames(npx_only),
-  min = apply(npx_only, 2, min, na.rm = TRUE),
-  max = apply(npx_only, 2, max, na.rm = TRUE),
-  mean = apply(npx_only, 2, mean, na.rm = TRUE),
-  sd = apply(npx_only, 2, sd, na.rm = TRUE)
+Bij verschillende klinische bloedmetingen werd telkens hetzelfde aantal ontbrekende waarden (10) waargenomen. Daarom werd nagegaan of deze missing values afkomstig waren van dezelfde stalen.
+```{r}
+# Variabelen waarvoor exact 10 missende waarden werden gevonden
+blood_vars <- c(
+  "bc.wbc",
+  "bc.hemoglobin",
+  "chem.glucose",
+  "chem.sodium",
+  "lip.cholesterol_total"
 )
 
-head(protein_stats)
+# Stalen met minstens één ontbrekende bloedmeting
+missing_samples <- sample_data %>%
+  filter(if_any(all_of(blood_vars), is.na)) %>%
+  select(sample_kit_id, all_of(blood_vars))
 
-#all_values <- unlist(protein_raw_numeric[,-1])
-#boxplot(all_values,
-#        horizontal =TRUE,
- #       main = "Distribution of NPX values")
+nrow(missing_samples)
+
+missing_samples
+```
+Hieruit blijkt dat telkens dezelfde 10 proefpersonen verantwoordelijk zijn voor de ontbrekende bloedmetingen. Dit wijst erop dat de missing values niet willekeurig verspreid zijn over de dataset, maar een systematisch patroon vertonen. Mogelijk werden voor deze stalen geen klinische bloedanalyses uitgevoerd of waren de resultaten niet beschikbaar. Omdat voor deze stalen wel proteomicsgegevens aanwezig zijn, werden ze niet uit de dataset verwijderd.
+
+2.PROTEIN-RAW
+```{r missing-meta-globaal}
+#Aantal missing values (globaal)
+colSums(is.na(protein_raw))
+sum(is.na(protein_raw)) #Totaal aantal NA's in de hele tabel
+mean(is.na(protein_raw))*100 #Algemene percentage lege cellen
+```
+Missing values
+```{r}
+missing_proteins_raw <- protein_raw %>%
+  summarise(across(everything(), ~sum(is.na(.)))) %>%
+  pivot_longer(everything(), names_to = "Variable", values_to = "missing_values") %>%
+  mutate(Missing_Percentage = (missing_values / nrow(protein_raw)) * 100) %>%
+  arrange(desc(Missing_Percentage))
+
+print(missing_proteins_raw, n = 40)
+
 ```
 ---
-STAP D: Is er transformatie nodig?
+STAP C: dubbele assays zoeken 
+In de annotatietabel controleren we of er eiwitten zijn die via de variabele same_assay_as aan dezelfde Olink-assay gekoppeld zijn. Dergelijke eiwitten vertegenwoordigen hetzelfde onderliggende meetsignaal en kunnen leiden tot redundante informatie in de dataset.
 ---
-
 ```{r}
-#1.Histogrammen
+# Zoek eiwitten die gekoppeld zijn aan dezelfde assay
+duplicate_assays <- protein_anno %>%
+  filter(!is.na(same_assay_as))
+
+# Bekijk hoeveel er zijn
+nrow(duplicate_assays)
+
+# Bekijk welke eiwitten het zijn
+duplicate_assays %>%
+  select(protein, same_assay_as)
+```
+
+Er werden 18 eiwitten geïdentificeerd in de kolom same_assay_as, overeenkomend met 9 unieke duplicate assay-paren. Deze zullen we in de volgende stap samenvoegen omdat ze eigenlijk dezelfde meting voorstellen.
+
+Samenvoegen van de duplicates
+```{r}
+pairs_df <- protein_anno %>%
+  filter(!is.na(same_assay_as)) %>%
+  arrange(n_missing) %>%
+  distinct(olink_id, .keep_all = TRUE)
+
+protein_clean <- protein_raw
+
+for (i in seq_len(nrow(pairs_df))) {
+
+  new_col <- pairs_df$protein[i]
+  old_col <- pairs_df$same_assay_as[i]
+
+  protein_clean[[new_col]] <-
+    coalesce(protein_clean[[new_col]],
+             protein_clean[[old_col]])
+
+  protein_clean[[old_col]] <- NULL
+}
+#Checken of we 9 eiwitkolommen minder hebben
+dim(protein_raw)
+dim(protein_clean)
+```
+
+Na het aanpassen van de eiwitmatrix, moet de annotatiematrix ook worden aangepast. 
+```{r}
+protein_anno_clean <- protein_anno %>%
+  filter(!protein %in% pairs_df$same_assay_as)
+```
+
+Nu willen we nagaan of dit effectief een verbetering is. We checken de missing values opnieuw. 
+```{r}
+# Totaal aantal missende waarden
+sum(is.na(protein_clean))
+
+# Percentage missende waarden
+mean(is.na(protein_clean)) * 100
+```
+
+Dit wilt zeggen dat 21% van alle waarden ontbreken. Na het samenvoegen van de duplicate assay-paren werd de missingness opnieuw geëvalueerd. Er bleven 2683 ontbrekende waarden over, wat overeenkomt met slechts 0,21% van alle metingen. Dit wijst erop dat de dataset na preprocessing slechts een zeer beperkt aantal ontbrekende waarden bevat.
+
+---
+STAP D: Eiwitten onder de detectielimiet (LOD)
+---
+Om de kwaliteit van de eiwitmetingen te evalueren, werd voor elk eiwit het percentage waarden onder de detectielimiet (Limit of Detection, LOD) onderzocht. Eiwitten waarvoor een groot deel van de metingen onder de detectielimiet ligt, bevatten mogelijk onvoldoende betrouwbare informatie voor verdere analyses.
+```{r}
+summary(protein_anno_clean$pct_below_lod)
+
+table(protein_anno_clean$pct_below_lod > 50)
+
+lod_summary <- data.frame(
+  categorie = c("≤ 50% onder LOD", "> 50% onder LOD"),
+  aantal = c(
+    sum(protein_anno_clean$pct_below_lod <= 50),
+    sum(protein_anno_clean$pct_below_lod > 50)
+  )
+)
+
+ggplot(lod_summary,
+       aes(x = categorie,
+           y = aantal,
+           fill = categorie)) +
+  geom_col() +
+  theme_bw() +
+  scale_fill_manual(
+    values = c("#2E8B57", "#B22222")
+  ) +
+  labs(
+    title = "Aantal eiwitten boven en onder de LOD-drempel",
+    x = "",
+    y = "Aantal eiwitten"
+  ) +
+  theme(legend.position = "none")
+```
+
+Eiwitten met meer dan 50% waarden onder de detectielimiet werden verwijderd. Voor deze eiwitten kon de meerderheid van de metingen niet betrouwbaar worden gekwantificeerd, waardoor ze weinig bruikbare informatie bevatten voor verdere analyses.
+```{r}
+#Eiwitten met >50% metingen onder LOD verwijderen
+protein_above_lod <- protein_anno_clean$protein[
+  protein_anno_clean$pct_below_lod <= 50
+]
+
+protein_filtered <- protein_clean %>%
+  select(sample_kit_id, all_of(protein_above_lod))
+
+# Controle aantal overblijvende eiwitten
+ncol(protein_filtered)
+
+```
+In totaal werden 150 eiwitten verwijderd omdat meer dan 50% van hun metingen onder de detectielimiet lag. Na deze filtering bleven 1322 eiwitten beschikbaar voor verdere analyses.
+---
+STAP E: Onmogelijke data verwijderen
+---
+Naast ontbrekende waarden werd ook gecontroleerd op biologisch onwaarschijnlijke of onmogelijke waarden in de metadata. Hierbij werd specifiek gekeken naar negatieve waarden en nulwaarden in numerieke variabelen.
+```{r}
+numeric_vars <- sample_data %>%
+  select(where(is.numeric))
+
+#Controle op 0 waarden
+zero_counts <- sapply(
+  numeric_vars,
+  function(x) sum(x == 0, na.rm = TRUE)
+)
+
+zero_counts[zero_counts > 0]
+
+#Controle op negatieve waarden
+negative_counts <- sapply(
+  numeric_vars,
+  function(x) sum(x < 0, na.rm = TRUE)
+)
+
+negative_counts[negative_counts > 0]
+
+```
+Er werden geen negatieve waarden gevonden. Wel werden 2 nulwaarden voor BMI (am.bmi) en 6 nulwaarden voor lichaamsgewicht (am.weight) vastgesteld. Omdat een BMI of lichaamsgewicht van nul biologisch onmogelijk is, werden deze waarden vervangen door NA.
+
+Correctie van onmogelijke data
+```{r}
+data_clean <- data_clean %>%
+  mutate(
+    am.bmi = na_if(am.bmi, 0),
+    am.weight = na_if(am.weight, 0)
+  )
+
+summary(data_clean$am.bmi)
+summary(data_clean$am.weight)
+```
+---
+STEP F: NOOD AAN TRANSFORMATIE EVALUEREN?
+---
+Vooraleer verdere multivariate analyses uit te voeren, werd onderzocht of een bijkomende transformatie van de eiwitexpressiewaarden noodzakelijk was. Olink NPX-waarden worden standaard gerapporteerd op een log2-schaal. Om dit na te gaan, werden de verdelingen van een willekeurige selectie eiwitten gevisualiseerd.
+```{r}
 set.seed(123)
 
-selected <- sample(colnames(protein_raw)[-1], 20)
+selected_proteins <- sample(
+  colnames(protein_filtered)[-1],
+  20
+)
 
-plot_data <- protein_raw %>%
-  select(all_of(selected)) %>%
+plot_data <- protein_filtered %>%
+  select(sample_kit_id, all_of(selected_proteins)) %>%
   pivot_longer(
-    cols = everything(),
+    cols = -sample_kit_id,
     names_to = "Protein",
     values_to = "NPX"
   )
@@ -257,90 +318,150 @@ plot_data <- protein_raw %>%
 ggplot(plot_data, aes(x = NPX)) +
   geom_histogram(
     bins = 30,
-    fill = "steelblue",
+    fill = "#2E8B57",
     color = "black"
   ) +
   facet_wrap(~Protein, ncol = 5) +
   theme_bw() +
   labs(
-    title = "Distribution of 20 randomly selected proteins",
-    x = "NPX value",
-    y = "Count"
+    title = "Verdeling van 20 willekeurig geselecteerde eiwitten",
+    x = "NPX-waarde",
+    y = "Frequentie"
   )
-
-#2. QQ-plots
-set.seed(123)
-
-selected <- sample(colnames(protein_raw_numeric), 20)
-
-par(mfrow = c(2,3))
-
-for(prot in selected){
-  qqnorm(protein_raw_numeric[[prot]],
-         main = prot)
-  qqline(protein_raw_numeric[[prot]],
-         col = "red")
-}
 ```
----
-STAP E: Biologische clustering -> PCA
---- 
-```{r}
-# PCA-input maken (eiwitten zonder missende waarden)
-protein_pca_input <- protein_clean %>%
-  select(sample_kit_id, where(~ sum(is.na(.)) == 0))
 
-# PCA uitvoeren met standaardisatie
-pca_resultaat <- prcomp(
-  protein_pca_input %>% select(-sample_kit_id),
+De meeste geselecteerde eiwitten vertonen een relatief symmetrische verdeling zonder uitgesproken rechtsscheefheid. Dit patroon is consistent met reeds log2-getransformeerde data. Daarom werd geen bijkomende log-transformatie toegepast.
+
+---
+STEP G: OUTLIERS
+---
+Tot slot werd gecontroleerd op mogelijke uitschieters (outliers) in de eiwitexpressiegegevens. Outliers werden geïdentificeerd aan de hand van de IQR-regel (1,5 × IQR). Omdat extreme eiwitwaarden ook een biologische oorzaak kunnen hebben, werden deze observaties niet automatisch verwijderd.
+```{r}
+protein_numeric <- protein_filtered %>%
+  select(-sample_kit_id)
+
+outliers <- lapply(protein_numeric, function(x) {
+
+  Q1 <- quantile(x, 0.25, na.rm = TRUE)
+  Q3 <- quantile(x, 0.75, na.rm = TRUE)
+  IQR <- Q3 - Q1
+
+  which(
+    x < (Q1 - 1.5 * IQR) |
+    x > (Q3 + 1.5 * IQR)
+  )
+})
+lengths(outliers)
+```
+Hoewel enkele potentiële outliers werden geïdentificeerd met de IQR-regel, werden deze niet verwijderd. De verdelingen van de eiwitten suggereerden dat deze waarden eerder biologisch dan technisch van aard zijn.
+
+---
+STEP H: Principal Component Analysis (PCA) en batch-effect analyse
+---
+
+Om de globale structuur van de dataset te onderzoeken, werd een Principal Component Analysis (PCA) uitgevoerd. PCA laat toe om na te gaan of samples spontaan clusteren op basis van biologische kenmerken (zoals leeftijdsgroep en CMV-status) of technische factoren (zoals Olink batch of plate ID).
+```{r}
+#Eerst werden de metadata en de gefilterde proteomicsdata op elkaar afgestemd zodat beide datasets dezelfde stalen bevatten en in dezelfde volgorde staan.
+# Metadata afstemmen op proteomicsdata
+meta_aligned <- sample_data %>%
+  filter(sample_kit_id %in% protein_filtered$sample_kit_id) %>%
+  arrange(match(sample_kit_id,
+                protein_filtered$sample_kit_id))
+
+# Eiwitmatrix
+protein_matrix <- protein_filtered %>%
+  select(-sample_kit_id)
+
+# Enkel complete cases gebruiken voor PCA -> enkel stalen zonder ontbrekende eiwitmetingen opgenomen in de PCA-analyse
+complete_idx <- complete.cases(protein_matrix)
+
+protein_matrix_pca <- protein_matrix[complete_idx, ]
+metadata_pca <- meta_aligned[complete_idx, ]
+
+# PCA uitvoeren
+pca <- prcomp(
+  protein_matrix_pca,
+  center = TRUE,
   scale. = TRUE
 )
+# Percentage verklaarde variantie berekenen
+var_exp <- (pca$sdev^2 / sum(pca$sdev^2)) * 100
 
-# PC1 en PC2 coordinaten koppelen aan metadata
-pca_dataframe <- as.data.frame(pca_resultaat$x[, 1:2]) %>%
-  bind_cols(sample_kit_id = protein_pca_input$sample_kit_id) %>%
-  inner_join(data_clean, by = "sample_kit_id")
+pc1_label <- paste0(
+  "PC1 (",
+  round(var_exp[1], 1),
+  "%)"
+)
 
-# PCA op leeftijdsgroep
-ggplot(pca_dataframe,
-       aes(x = PC1,
-           y = PC2,
-           color = subject.ageGroup)) +
-  geom_point(size = 2, alpha = 0.7) +
-  theme_bw() +
-  labs(
-    title = "PCA van Olink eiwitexpressie",
-    subtitle = "Kleuring volgens leeftijdsgroep"
-  )
-
-# PCA op CMV-status
-ggplot(pca_dataframe,
-       aes(x = PC1,
-           y = PC2,
-           color = cmv_status)) +
-  geom_point(size = 2, alpha = 0.7) +
-  theme_bw() +
-  labs(
-    title = "PCA van Olink eiwitexpressie",
-    subtitle = "Kleuring volgens CMV-status"
-  )
-
-# PCA op plate ID
-ggplot(pca_dataframe,
-       aes(x = PC1,
-           y = PC2,
-           color = as.factor(olink_plate_id))) +
-  geom_point(size = 2, alpha = 0.7) +
-  theme_bw() +
-  theme(legend.position = "none") +
-  labs(
-    title = "PCA van Olink eiwitexpressie",
-    subtitle = "Controle op mogelijke batch-effecten"
-  )
+pc2_label <- paste0(
+  "PC2 (",
+  round(var_exp[2], 1),
+  "%)"
+)
 ```
 
----
-STAP F: Controle voor volgende delen
---- 
+PCA VISUALISEREN
+```{r}
+plot(
+  pca$x[,1],
+  pca$x[,2],
+  pch = 16,
+  col = "darkgreen",
+  xlab = pc1_label,
+  ylab = pc2_label,
+  main = "PCA van de proteomicsdata"
+)
+```
+PCA OP BATCH EFFECT
+```{r}
+plot(
+  pca$x[,1],
+  pca$x[,2],
+  col = as.factor(metadata_pca$olink_batch_id),
+  pch = 16,
+  main = "PCA volgens Olink batch"
+)
+```
+De PCA toont een gedeeltelijke clustering volgens Olink-batch. Dit suggereert dat batch-effecten mogelijk bijdragen aan een deel van de variatie in de proteomicsdata.
 
-#PART 1: Formulate and test your own research question
+PCA LEEFTIJD
+```{r}
+plot(
+  pca$x[,1],
+  pca$x[,2],
+  col = as.factor(metadata_pca$subject.ageGroup),
+  pch = 16,
+  main = "PCA volgens leeftijdsgroep"
+)
+```
+De leeftijdsgroepen vertonen aanzienlijke overlap. Hoewel een lichte tendens zichtbaar lijkt, worden beide groepen niet duidelijk van elkaar gescheiden.
+
+PCA CMV-STATUS
+```{r}
+plot(
+  pca$x[,1],
+  pca$x[,2],
+  col = as.factor(metadata_pca$cmv_status),
+  pch = 16,
+  main = "PCA volgens CMV-status"
+)
+```
+Wanneer de stalen werden gekleurd volgens CMV-status, werd geen duidelijke clustering waargenomen. CMV-positieve en CMV-negatieve individuen vertonen een sterke overlap in de eerste twee hoofdcomponenten. Dit suggereert dat CMV-status geen dominante bron van variatie vormt in de globale proteomicsdataset.
+
+CONCLUSIE PCA:
+De PCA suggereerde een beperkte invloed van batch op de totale proteoomvariatie. Daarom werd batch niet vooraf uit de dataset verwijderd. Indien relevant voor de onderzoeksvraag, kan batch later worden opgenomen als covariaat in statistische modellen. Leeftijd lijkt een beperkte invloed te hebben op het proteoomprofiel, terwijl CMV-status geen duidelijke clustering veroorzaakt. De eerste twee hoofdcomponenten bieden bijgevolg weinig bewijs voor een sterk globaal effect van CMV op de eiwitexpressie.
+
+---
+STAP I: Controle voor verdere analyse
+---
+Na de preprocessing werd een laatste kwaliteitscontrole uitgevoerd. Duplicate assays werden samengevoegd, eiwitten met meer dan 50% waarden onder de detectielimiet werden verwijderd en potentiële technische batch-effecten werden geëvalueerd via PCA. De distributie van de NPX-waarden bevestigde dat geen bijkomende log-transformatie nodig was.
+
+```{r}
+cat("Aantal stalen:", nrow(protein_filtered), "\n")
+cat("Aantal eiwitten:", ncol(protein_filtered)-1, "\n")
+```
+Na kwaliteitscontrole en filtering bleven 867 stalen en 1322 eiwitten beschikbaar voor verdere analyses. De resterende missingness was beperkt (0,21%) en de dataset werd geschikt geacht voor downstream analyses.
+
+
+
+
