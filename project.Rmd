@@ -622,3 +622,152 @@ ggsave("fig_deel2_forest.png", p2, width = 5, height = 3, dpi = 300)
 
 
 
+## Deel 2: Multivariabele hypothesetesting (CXCL10)
+```{r deel2-setup, message=FALSE, warning=FALSE}
+library(tidyverse)
+library(lmerTest)     # lmer + p-waarden
+library(broom.mixed)  # coëfficiëntentabellen
+library(performance)  # check_model()
+library(ggeffects)    # voorspellingen voor figuur
+library(car)          # vif
+library(patchwork)    # figuren combineren
+
+f_meta    <- "data_clean.csv"
+f_protein <- "protein_clean.csv"
+
+id_col    <- "sample_kit_id"
+subj_col  <- "subject.subjectGuid"
+age_col   <- "sample.subjectAgeAtDraw"
+sex_col   <- "subject.biologicalSex"
+cmv_col   <- "cmv_status"
+batch_col <- "olink_batch_id"
+visit_col <- "sample.visitName"
+protein   <- "CXCL10"
+```
+
+```{r deel2-load, message=FALSE, warning=FALSE}
+meta <- read_csv(f_meta)
+prot <- read_csv(f_protein)
+
+# Stopt direct met een duidelijke fout als een kolomnaam niet klopt
+stopifnot(all(c(id_col, subj_col, age_col, sex_col, cmv_col,
+                batch_col, visit_col) %in% names(meta)),
+          protein %in% names(prot))
+
+dat <- meta %>%
+  select(all_of(c(id_col, subj_col, age_col, sex_col,
+                  cmv_col, batch_col, visit_col))) %>%
+  rename(sample = !!id_col, subject = !!subj_col, age = !!age_col,
+         sex = !!sex_col, cmv = !!cmv_col, batch = !!batch_col,
+         visit = !!visit_col) %>%
+  inner_join(prot %>% select(all_of(c(id_col, protein))) %>%
+               rename(sample = !!id_col, y = !!protein),
+             by = "sample") %>%
+  mutate(sex = factor(sex),
+         cmv = factor(cmv, levels = c("Negative", "Positive")),
+         batch = factor(batch),
+         subject = factor(subject),
+         age10 = age / 10)
+
+unique(dat$visit)
+
+dat <- dat %>%
+  mutate(timepoint = case_when(
+    str_detect(visit, "Day 0")  ~ "D0",
+    str_detect(visit, "Day 7")  ~ "D7",
+    str_detect(visit, "Day 90") ~ "D90",
+    TRUE ~ NA_character_),
+    timepoint = factor(timepoint, levels = c("D0", "D7", "D90")))
+table(dat$timepoint, useNA = "ifany")
+```
+
+```{r deel2-qc, message=FALSE, warning=FALSE}
+colSums(is.na(dat))
+dat <- dat %>% drop_na(y, age, sex, cmv, timepoint)
+nrow(dat); n_distinct(dat$subject)
+summary(dat$y)
+
+ggplot(dat, aes(y)) + geom_histogram(bins = 40) +
+  labs(x = paste(protein, "(NPX)")) + theme_classic(base_size = 11)
+
+ggplot(dat, aes(timepoint, y)) + geom_boxplot() +
+  labs(x = "Timepoint", y = paste(protein, "(NPX)")) +
+  theme_classic(base_size = 11)
+
+# Confounding-check: valt batch samen met leeftijd of CMV?
+table(datbatch, datcmv)
+dat %>% group_by(batch) %>% summarise(n = n(), mean_age = mean(age))
+```
+
+```{r deel2-baseline-lm, message=FALSE, warning=FALSE}
+# Eenvoudig model: 1 sample per persoon (vroegste dag-0-meting)
+baseline <- dat %>%
+  filter(timepoint == "D0") %>%
+  arrange(subject, age) %>%
+  group_by(subject) %>% slice(1) %>% ungroup()
+nrow(baseline); n_distinct(dat$subject)
+
+m_lm <- lm(y ~ age10 + sex + cmv, data = baseline)
+summary(m_lm)
+confint(m_lm)
+
+par(mfrow = c(2, 2)); plot(m_lm); par(mfrow = c(1, 1))
+shapiro.test(residuals(m_lm))
+vif(m_lm)
+```
+
+```{r deel2-mixed-model, message=FALSE, warning=FALSE}
+# Hoofdmodel: alle samples, random intercept per persoon
+m_lmer <- lmer(y ~ age10 + sex + cmv + timepoint + (1 | subject), data = dat)
+summary(m_lmer)
+tidy(m_lmer, effects = "fixed", conf.int = TRUE)
+check_model(m_lmer)
+
+# Gevoeligheidsanalyses
+m_lmer_b <- lmer(y ~ age10 + sex + cmv + timepoint + batch + (1 | subject),
+                 data = dat)
+m_int    <- lmer(y ~ age10 * cmv + sex + timepoint + (1 | subject),
+                 data = dat)
+anova(m_lmer, m_lmer_b)
+anova(m_lmer, m_int)
+```
+
+```{r deel2-figures, message=FALSE, warning=FALSE}
+# Panel A: voorspelde CXCL10 vs leeftijd (x terug naar jaren)
+pred <- ggpredict(m_lmer, terms = c("age10", "cmv")) %>% as_tibble() %>%
+  mutate(x_years = x * 10)
+
+pA <- ggplot() +
+  geom_point(data = dat, aes(age, y, colour = cmv), alpha = 0.25, size = 1) +
+  geom_ribbon(data = pred, aes(x_years, ymin = conf.low, ymax = conf.high,
+                               fill = group), alpha = 0.15) +
+  geom_line(data = pred, aes(x_years, predicted, colour = group),
+            linewidth = 1.1) +
+  labs(x = "Age (years)", y = "CXCL10 (NPX, log2)",
+       colour = "CMV", fill = "CMV") +
+  theme_classic(base_size = 11)
+
+# Panel B: forest plot van de vaste effecten
+coefs <- tidy(m_lmer, effects = "fixed", conf.int = TRUE) %>%
+  filter(term != "(Intercept)") %>%
+  mutate(term = recode(term,
+    age10        = "Age (per 10 years)",
+    sexMale      = "Sex (male vs female)",
+    cmvPositive  = "CMV (positive vs negative)",
+    timepointD7  = "Day 7 vs day 0",
+    timepointD90 = "Day 90 vs day 0"))
+
+pB <- ggplot(coefs, aes(estimate, term)) +
+  geom_pointrange(aes(xmin = conf.low, xmax = conf.high)) +
+  geom_vline(xintercept = 0, linetype = 2) +
+  labs(x = "Effect on NPX (95% CI)", y = NULL) +
+  theme_classic(base_size = 11)
+
+fig <- pA + pB + plot_annotation(tag_levels = "A")
+fig
+ggsave("fig_deel2.png", fig, width = 9, height = 4, dpi = 300)
+
+# Tabel voor het rapport
+tidy(m_lmer, effects = "fixed", conf.int = TRUE) %>%
+  mutate(across(where(is.numeric), ~ round(.x, 3)))
+```
