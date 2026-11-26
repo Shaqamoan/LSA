@@ -695,7 +695,7 @@ ggplot(dat, aes(timepoint, y)) + geom_boxplot() +
   theme_classic(base_size = 11)
 
 # Confounding-check: valt batch samen met leeftijd of CMV?
-table(datbatch, datcmv)
+table(dat$batch, dat$cmv)
 dat %>% group_by(batch) %>% summarise(n = n(), mean_age = mean(age))
 ```
 
@@ -750,7 +750,7 @@ pA <- ggplot() +
 # Panel B: forest plot van de vaste effecten
 coefs <- tidy(m_lmer, effects = "fixed", conf.int = TRUE) %>%
   filter(term != "(Intercept)") %>%
-  mutate(term = recode(term,
+  mutate(term = dplyr::recode(term,
     age10        = "Age (per 10 years)",
     sexMale      = "Sex (male vs female)",
     cmvPositive  = "CMV (positive vs negative)",
