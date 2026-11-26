@@ -514,6 +514,111 @@ cat("Aantal eiwitten:", ncol(protein_filtered)-1, "\n")
 ```
 Na kwaliteitscontrole en filtering bleven 867 stalen en 1322 eiwitten beschikbaar voor verdere analyses. De resterende missingness was beperkt (0,21%) en de dataset werd geschikt geacht voor downstream analyses.
 
+```{r}
+# ============================================================
+# DEEL 2: CXCL10 ~ leeftijd + geslacht + CMV-status (+ batch)
+# ============================================================
+library(tidyverse)
+library(lmerTest)     # lmer + p-waarden
+library(broom.mixed)  # nette coëfficiënttabellen
+library(performance)  # check_model()
+library(ggeffects)    # effect-plot
+library(car)          # vif
+
+# ---- 0. PAS DEZE NAMEN AAN aan jullie bestanden ----------------
+f_meta    <- "data_clean.csv"      # sample/donor metadata
+f_protein <- "protein_clean.csv"   # NPX-matrix (sample_kit_id x eiwitten)
+
+id_col    <- "sample_kit_id"
+subj_col  <- "subject.subjectGuid"
+age_col   <- "sample.subjectAgeAtDraw"
+sex_col   <- "subject.biologicalSex"
+cmv_col   <- "cmv_status"
+batch_col <- "olink_batch_id"
+visit_col <- "sample.visitName"
+protein   <- "CXCL10"
+
+# ---- 1. Inlezen en mergen --------------------------------------
+meta <- read_csv(f_meta)
+prot <- read_csv(f_protein)
+names(meta)  # <- controleer de kolomnamen!
+
+dat <- meta %>%
+  select(all_of(c(id_col, subj_col, age_col, sex_col,
+                  cmv_col, batch_col, visit_col))) %>%
+  rename(sample = !!id_col, subject = !!subj_col, age = !!age_col,
+         sex = !!sex_col, cmv = !!cmv_col, batch = !!batch_col,
+         visit = !!visit_col) %>%
+  inner_join(prot %>% select(all_of(c(id_col, protein))) %>%
+               rename(sample = !!id_col, y = !!protein),
+             by = "sample") %>%
+  mutate(sex = factor(sex),
+         cmv = factor(cmv, levels = c("Negative", "Positive")),
+         batch = factor(batch),
+         subject = factor(subject))
+
+# ---- 2. Missing values en kwaliteitscheck -----------------------
+colSums(is.na(dat))
+dat <- dat %>% drop_na(y, age, sex, cmv)
+nrow(dat); n_distinct(dat$subject)
+
+# Verdeling van de uitkomst (NPX is al log2-schaal)
+ggplot(dat, aes(y)) + geom_histogram(bins = 40) +
+  labs(x = paste(protein, "(NPX)"))
+
+# ---- 3A. Baseline-only lineair model (1 sample/persoon) ----------
+baseline <- dat %>%
+  filter(str_detect(visit, "Day 0")) %>%     # pas aan indien nodig
+  group_by(subject) %>% slice(1) %>% ungroup()
+
+m_lm <- lm(y ~ age + sex + cmv, data = baseline)
+summary(m_lm)
+confint(m_lm)
+
+# Modelaannames
+par(mfrow = c(2, 2)); plot(m_lm); par(mfrow = c(1, 1))
+shapiro.test(residuals(m_lm))
+vif(m_lm)
+
+# ---- 3B. Mixed model op alle samples -----------------------------
+m_lmer <- lmer(y ~ age + sex + cmv + (1 | subject), data = dat)
+summary(m_lmer)
+tidy(m_lmer, effects = "fixed", conf.int = TRUE)
+
+check_model(m_lmer)   # residuen, normaliteit random effects, enz.
+
+# Optioneel: batch meenemen als technische confounder
+m_lmer_b <- lmer(y ~ age + sex + cmv + batch + (1 | subject), data = dat)
+anova(m_lmer, m_lmer_b)
+
+# Optioneel: interactie (verandert het leeftijdseffect met CMV?)
+m_int <- lmer(y ~ age * cmv + sex + (1 | subject), data = dat)
+anova(m_lmer, m_int)
+
+# ---- 4. Publicatiewaardige figuur --------------------------------
+pred <- ggpredict(m_lmer, terms = c("age", "cmv"))
+
+p <- ggplot() +
+  geom_point(data = dat, aes(age, y, colour = cmv),
+             alpha = 0.25, size = 1) +
+  geom_line(data = pred, aes(x, predicted, colour = group), linewidth = 1.1) +
+  geom_ribbon(data = pred, aes(x, ymin = conf.low, ymax = conf.high,
+                               fill = group), alpha = 0.15) +
+  labs(x = "Leeftijd (jaar)", y = paste(protein, "(NPX, log2)"),
+       colour = "CMV-status", fill = "CMV-status") +
+  theme_classic(base_size = 11)
+
+ggsave("fig_deel2_age_cxcl10.png", p, width = 6, height = 4, dpi = 300)
+
+# Forest plot van effecten
+coefs <- tidy(m_lmer, effects = "fixed", conf.int = TRUE) %>%
+  filter(term != "(Intercept)")
+p2 <- ggplot(coefs, aes(estimate, term)) +
+  geom_pointrange(aes(xmin = conf.low, xmax = conf.high)) +
+  geom_vline(xintercept = 0, linetype = 2) +
+  labs(x = "Effect op NPX (95% BI)", y = NULL) + theme_classic(base_size = 11)
+ggsave("fig_deel2_forest.png", p2, width = 5, height = 3, dpi = 300)
+```
 
 
 
